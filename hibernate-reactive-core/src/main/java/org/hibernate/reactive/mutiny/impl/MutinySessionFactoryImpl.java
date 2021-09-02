@@ -67,31 +67,24 @@ public class MutinySessionFactoryImpl implements Mutiny.SessionFactory {
 	}
 
 	@Override
-	public Mutiny.Session openSession() {
-		SessionCreationOptions options = options();
-		return new MutinySessionImpl(
-				new ReactiveSessionImpl( delegate, options, proxyConnection( options.getTenantIdentifier() ) ),
-				this
-		);
+	public Mutiny.Session getCurrentContextualSession() {
+		Mutiny.Session current = context.get( contextKeyForSession );
+		if ( current != null && current.isOpen() ) {
+			return current;
+		}
+		return null;
 	}
 
 	@Override
-	public Mutiny.Session openSession(String tenantId) {
-		Objects.requireNonNull( tenantId, "parameter 'tenantId' is required" );
-		return new MutinySessionImpl(
-				new ReactiveSessionImpl( delegate, options( tenantId ), proxyConnection( tenantId ) ),
-				this
-		);
-	}
-
-	Uni<Mutiny.Session> newSession() throws HibernateException {
+	public Uni<Mutiny.Session> openSession() throws HibernateException {
 		SessionCreationOptions options = options();
 		return uni( () -> connection( options.getTenantIdentifier() ) )
 				.chain( reactiveConnection -> create( reactiveConnection, () -> new ReactiveSessionImpl( delegate, options, reactiveConnection ) ) )
 				.map( s -> new MutinySessionImpl(s, this) );
 	}
 
-	Uni<Mutiny.Session> newSession(String tenantId) throws HibernateException {
+	@Override
+	public Uni<Mutiny.Session> openSession(String tenantId) throws HibernateException {
 		return uni( () -> connection( tenantId ) )
 				.chain( reactiveConnection -> create( reactiveConnection, () -> new ReactiveSessionImpl( delegate, options( tenantId ), reactiveConnection ) ) )
 				.map( s -> new MutinySessionImpl(s, this) );
@@ -106,29 +99,15 @@ public class MutinySessionFactoryImpl implements Mutiny.SessionFactory {
 	}
 
 	@Override
-	public Mutiny.StatelessSession openStatelessSession() {
-		SessionCreationOptions options = options();
-		return new MutinyStatelessSessionImpl(
-				new ReactiveStatelessSessionImpl( delegate, options, proxyConnection( options.getTenantIdentifier() ) ),
-				this
-		);
-	}
-
-	public Mutiny.StatelessSession openStatelessSession(String tenantId) {
-		return new MutinyStatelessSessionImpl(
-				new ReactiveStatelessSessionImpl( delegate, options( tenantId ), proxyConnection( tenantId ) ),
-				this
-		);
-	}
-
-	Uni<Mutiny.StatelessSession> newStatelessSession() throws HibernateException {
+	public Uni<Mutiny.StatelessSession> openStatelessSession() throws HibernateException {
 		SessionCreationOptions options = options();
 		return uni( () -> connection( options.getTenantIdentifier() ) )
 				.chain( reactiveConnection -> create( reactiveConnection, () -> new ReactiveStatelessSessionImpl( delegate, options, reactiveConnection ) ) )
 				.map( s -> new MutinyStatelessSessionImpl(s, this) );
 	}
 
-	Uni<Mutiny.StatelessSession> newStatelessSession(String tenantId) {
+	@Override
+	public Uni<Mutiny.StatelessSession> openStatelessSession(String tenantId) {
 		return uni( () -> connection( tenantId ) )
 				.chain( reactiveConnection -> create( reactiveConnection, () -> new ReactiveStatelessSessionImpl( delegate, options( tenantId ), reactiveConnection ) ) )
 				.map( s -> new MutinyStatelessSessionImpl( s, this ) );
@@ -164,7 +143,7 @@ public class MutinySessionFactoryImpl implements Mutiny.SessionFactory {
 		if ( current != null && current.isOpen() ) {
 			return work.apply( current );
 		}
-		return withSession( newSession(), work, contextKeyForSession );
+		return withSession( openSession(), work, contextKeyForSession );
 	}
 
 	@Override
@@ -176,7 +155,7 @@ public class MutinySessionFactoryImpl implements Mutiny.SessionFactory {
 		if ( current!=null && current.isOpen() ) {
 			return work.apply( current );
 		}
-		return withSession( newSession( tenantId ), work, key );
+		return withSession( openSession( tenantId ), work, key );
 	}
 
 	@Override
@@ -186,7 +165,7 @@ public class MutinySessionFactoryImpl implements Mutiny.SessionFactory {
 		if ( current != null && current.isOpen() ) {
 			return work.apply( current );
 		}
-		return withSession( newStatelessSession(), work, contextKeyForStatelessSession );
+		return withSession( openStatelessSession(), work, contextKeyForStatelessSession );
 	}
 
 	@Override
@@ -198,7 +177,7 @@ public class MutinySessionFactoryImpl implements Mutiny.SessionFactory {
 		if ( current != null && current.isOpen() ) {
 			return work.apply( current );
 		}
-		return withSession( newStatelessSession(tenantId), work, key );
+		return withSession( openStatelessSession( tenantId), work, key );
 	}
 
 	private<S extends Mutiny.Closeable, T> Uni<T> withSession(
