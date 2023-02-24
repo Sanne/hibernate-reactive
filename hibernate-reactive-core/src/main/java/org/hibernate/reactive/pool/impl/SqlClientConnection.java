@@ -70,12 +70,14 @@ public class SqlClientConnection implements ReactiveConnection {
 
 	@Override
 	public CompletionStage<Integer> update(String sql, Object[] paramValues) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		translateNulls( paramValues );
 		return update( sql, Tuple.wrap( paramValues ) );
 	}
 
 	@Override
 	public CompletionStage<int[]> update(String sql, List<Object[]> batchParamValues) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		final List<Tuple> tuples = new ArrayList<>( batchParamValues.size() );
 		for ( Object[] paramValues : batchParamValues ) {
 			translateNulls( paramValues );
@@ -86,15 +88,17 @@ public class SqlClientConnection implements ReactiveConnection {
 
 	@Override
 	public CompletionStage<Void> update(String sql, Object[] paramValues, boolean allowBatching, Expectation expectation) {
-		return update( sql, paramValues )
-				.thenAccept( rowCount -> expectation.verifyOutcome( rowCount,-1, sql ) );
+		final String readySql = PostgresParameters.INSTANCE.process( sql );
+		return update( readySql, paramValues )
+				.thenAccept( rowCount -> expectation.verifyOutcome( rowCount,-1, readySql ) );
 	}
 
 	@Override
 	public <T> CompletionStage<T> selectIdentifier(String sql, Object[] paramValues, Class<T> idClass) {
+		final String readySql = PostgresParameters.INSTANCE.process( sql );
 		translateNulls( paramValues );
-		return preparedQuery( sql, Tuple.wrap( paramValues ) )
-				.handle( (rows, throwable) -> convertException( rows, sql, throwable ) )
+		return preparedQuery( readySql, Tuple.wrap( paramValues ) )
+				.handle( (rows, throwable) -> convertException( rows, readySql, throwable ) )
 				.thenApply( rowSet -> {
 					for (Row row: rowSet) {
 						return row.get(idClass, 0);
@@ -105,12 +109,14 @@ public class SqlClientConnection implements ReactiveConnection {
 
 	@Override
 	public CompletionStage<Result> select(String sql) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		return preparedQuery( sql )
 				.thenApply( RowSetResult::new );
 	}
 
 	@Override
 	public CompletionStage<Result> select(String sql, Object[] paramValues) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		translateNulls( paramValues );
 		return preparedQuery( sql, Tuple.wrap( paramValues ) )
 				.thenApply( RowSetResult::new );
@@ -118,6 +124,7 @@ public class SqlClientConnection implements ReactiveConnection {
 
 	@Override
 	public CompletionStage<ResultSet> selectJdbc(String sql, Object[] paramValues) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		translateNulls( paramValues );
 		return preparedQuery( sql, Tuple.wrap( paramValues ) )
 				.thenApply( ResultSetAdaptor::new );
@@ -125,21 +132,24 @@ public class SqlClientConnection implements ReactiveConnection {
 
 	@Override
 	public CompletionStage<ResultSet> selectJdbcOutsideTransaction(String sql, Object[] paramValues) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		return preparedQueryOutsideTransaction( sql, Tuple.wrap( paramValues ) )
 				.thenApply( ResultSetAdaptor::new );
 	}
 
 	@Override
 	public CompletionStage<Void> execute(String sql) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		return preparedQuery( sql )
 				.thenCompose( CompletionStages::voidFuture );
 	}
 
 	@Override
 	public CompletionStage<Void> executeUnprepared(String sql) {
-		feedback( sql );
-		return client().query( sql ).execute().toCompletionStage()
-				.handle( (rows, throwable) -> convertException( rows, sql, throwable ) )
+		final String readySql = PostgresParameters.INSTANCE.process( sql );
+		feedback( readySql );
+		return client().query( readySql ).execute().toCompletionStage()
+				.handle( (rows, throwable) -> convertException( rows, readySql, throwable ) )
 				.thenCompose( CompletionStages::voidFuture );
 	}
 
@@ -161,19 +171,23 @@ public class SqlClientConnection implements ReactiveConnection {
 
 	@Override
 	public CompletionStage<Void> executeOutsideTransaction(String sql) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		return preparedQueryOutsideTransaction( sql ).thenApply( ignore -> null );
 	}
 
 	@Override
 	public CompletionStage<Integer> update(String sql) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		return preparedQuery( sql ).thenApply(SqlResult::rowCount);
 	}
 
 	public CompletionStage<Integer> update(String sql, Tuple parameters) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		return preparedQuery( sql, parameters ).thenApply(SqlResult::rowCount);
 	}
 
 	public CompletionStage<int[]> updateBatch(String sql, List<Tuple> parametersBatch) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		return preparedQueryBatch( sql, parametersBatch ).thenApply(result -> {
 
 			final int[] updateCounts = new int[ parametersBatch.size() ];
@@ -206,11 +220,13 @@ public class SqlClientConnection implements ReactiveConnection {
 
 	@Override
 	public <T> CompletionStage<T> insertAndSelectIdentifier(String sql, Object[] paramValues, Class<T> idClass, String idColumnName) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		translateNulls( paramValues );
 		return insertAndSelectIdentifier( sql, Tuple.wrap( paramValues ), idClass, idColumnName );
 	}
 
 	public <T> CompletionStage<T> insertAndSelectIdentifier(String sql, Tuple parameters, Class<T> idClass, String idColumnName) {
+		sql = PostgresParameters.INSTANCE.process( sql );
 		// Oracle needs to know the name of the column id in advance, this shouldn't affect the other dbs
 		JsonObject options = new JsonObject()
 				.put( "autoGeneratedKeysIndexes", new JsonArray().add( idColumnName ) );
@@ -225,39 +241,45 @@ public class SqlClientConnection implements ReactiveConnection {
 	}
 
 	public CompletionStage<RowSet<Row>> preparedQuery(String sql, Tuple parameters) {
-		feedback( sql );
-		return client().preparedQuery( sql ).execute( parameters ).toCompletionStage()
-				.handle( (rows, throwable) -> convertException( rows, sql, throwable ) );
+		final String readySql = PostgresParameters.INSTANCE.process( sql );
+		feedback( readySql );
+		return client().preparedQuery( readySql ).execute( parameters ).toCompletionStage()
+				.handle( (rows, throwable) -> convertException( rows, readySql, throwable ) );
 	}
 
 	public CompletionStage<RowSet<Row>> preparedQuery(String sql, Tuple parameters, PrepareOptions options) {
-		feedback( sql );
-		return client().preparedQuery( sql, options ).execute( parameters ).toCompletionStage()
-				.handle( (rows, throwable) -> convertException( rows, sql, throwable ) );
+		final String readySql = PostgresParameters.INSTANCE.process( sql );
+		feedback( readySql );
+		return client().preparedQuery( readySql, options ).execute( parameters ).toCompletionStage()
+				.handle( (rows, throwable) -> convertException( rows, readySql, throwable ) );
 	}
 
 	public CompletionStage<RowSet<Row>> preparedQueryBatch(String sql, List<Tuple> parameters) {
-		feedback( sql );
-		return client().preparedQuery( sql ).executeBatch( parameters ).toCompletionStage()
-				.handle( (rows, throwable) -> convertException( rows, sql, throwable ) );
+		final String readySql = PostgresParameters.INSTANCE.process( sql );
+		feedback( readySql );
+		return client().preparedQuery( readySql ).executeBatch( parameters ).toCompletionStage()
+				.handle( (rows, throwable) -> convertException( rows, readySql, throwable ) );
 	}
 
 	public CompletionStage<RowSet<Row>> preparedQuery(String sql) {
-		feedback( sql );
-		return client().preparedQuery( sql ).execute().toCompletionStage()
-				.handle( (rows, throwable) -> convertException( rows, sql, throwable ) );
+		final String readySql = PostgresParameters.INSTANCE.process( sql );
+		feedback( readySql );
+		return client().preparedQuery( readySql ).execute().toCompletionStage()
+				.handle( (rows, throwable) -> convertException( rows, readySql, throwable ) );
 	}
 
 	public CompletionStage<RowSet<Row>> preparedQueryOutsideTransaction(String sql) {
-		feedback( sql );
-		return pool.preparedQuery( sql ).execute().toCompletionStage()
-				.handle( (rows, throwable) -> convertException( rows, sql, throwable ) );
+		final String readySql = PostgresParameters.INSTANCE.process( sql );
+		feedback( readySql );
+		return pool.preparedQuery( readySql ).execute().toCompletionStage()
+				.handle( (rows, throwable) -> convertException( rows, readySql, throwable ) );
 	}
 
 	public CompletionStage<RowSet<Row>> preparedQueryOutsideTransaction(String sql, Tuple parameters) {
-		feedback( sql );
-		return pool.preparedQuery( sql ).execute( parameters ).toCompletionStage()
-				.handle( (rows, throwable) -> convertException( rows, sql, throwable ) );
+		final String readySql = PostgresParameters.INSTANCE.process( sql );
+		feedback( readySql );
+		return pool.preparedQuery( readySql ).execute( parameters ).toCompletionStage()
+				.handle( (rows, throwable) -> convertException( rows, readySql, throwable ) );
 	}
 
 	private void feedback(String sql) {
