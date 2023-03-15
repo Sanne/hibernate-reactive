@@ -84,8 +84,13 @@ logger.lifecycle "Java versions for tests: " + gradle.ext.javaVersions.test
 include 'hibernate-reactive-core'
 include 'documentation'
 include 'release'
-include 'bytecode-enhancements-it'
-
+//Can't build the 'bytecode-enhancements-it' module when depending on ORM snapshots,
+//as the gradle tooling isn't uploaded to Sonatype snapshot repositories.
+//include 'bytecode-enhancements-it'
+//hibernate-jcache-6.2.0-20230315.094948-631.pom
+//hibernate-jcache-6.2.0-20230315.094948-620.pom
+//https://oss.sonatype.org/content/repositories/snapshots/org/hibernate/orm/hibernate-jcache/6.2.0-SNAPSHOT/
+//https://oss.sonatype.org/content/repositories/snapshots/org/hibernate/orm/hibernate-jcache/6.2.0-SNAPSHOT/hibernate-jcache-6.2.0-20230315.094948-620.pom
 // Examples
 for ( project in rootProject.children ) {
     if ( project.name.endsWith( "-example" ) ) {
