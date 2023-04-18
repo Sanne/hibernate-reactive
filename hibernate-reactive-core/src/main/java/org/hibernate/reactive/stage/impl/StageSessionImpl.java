@@ -10,6 +10,7 @@ import jakarta.persistence.CacheStoreMode;
 import jakarta.persistence.EntityGraph;
 import jakarta.persistence.FlushModeType;
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceException;
 import jakarta.persistence.criteria.CriteriaDelete;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.CriteriaUpdate;
@@ -28,6 +29,7 @@ import org.hibernate.reactive.engine.ReactiveActionQueue;
 import org.hibernate.reactive.logging.impl.Log;
 import org.hibernate.reactive.logging.impl.LoggerFactory;
 import org.hibernate.reactive.pool.ReactiveConnection;
+import org.hibernate.reactive.session.ReactiveConnectionSupplier;
 import org.hibernate.reactive.session.ReactiveSession;
 import org.hibernate.reactive.stage.Stage;
 import org.hibernate.reactive.stage.Stage.MutationQuery;
@@ -539,5 +541,12 @@ public class StageSessionImpl implements Stage.Session {
 	@Override
 	public <R> Query<R> createNativeQuery(String queryString, AffectedEntities affectedEntities) {
 		return new StageQueryImpl<>( delegate.createReactiveNativeQuery( queryString, affectedEntities ) );
+	}
+
+	public <T> T unwrap(Class<T> clazz) {
+		if ( ReactiveConnectionSupplier.class.isAssignableFrom( clazz ) ) {
+			return clazz.cast( this.delegate );
+		}
+		throw new PersistenceException( "Hibernate cannot unwrap " + clazz );
 	}
 }
