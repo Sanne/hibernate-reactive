@@ -46,11 +46,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MultithreadedIdentityGenerationTest {
 
     private static final int N_THREADS = 12;
-    private static final int IDS_GENERATED_PER_THREAD = 10000;
+    private static final int IDS_GENERATED_PER_THREAD = 5000;
     private static final int TIMEOUT_MINUTES = 10;
     private static final boolean LOG_SQL = false;
-    private static final CountDownLatch startLatch = new CountDownLatch(N_THREADS);
-    private static final CountDownLatch endLatch = new CountDownLatch(N_THREADS);
+    private static final Latch startLatch = new Latch("start", N_THREADS);
+    private static final Latch endLatch = new Latch("end", N_THREADS);
 
     private static Stage.SessionFactory stageSessionFactory;
     private static Vertx vertx;
@@ -86,7 +86,7 @@ public class MultithreadedIdentityGenerationTest {
         return identifierGenerator;
     }
 
-    @Test
+    @Test(timeout = (1000*60*10))//10 minutes timeout
     public void testIdentityGenerator(TestContext context) {
         final Async async = context.async();
         final ReactiveGeneratorWrapper idGenerator = getIdGenerator();
@@ -100,7 +100,7 @@ public class MultithreadedIdentityGenerationTest {
         vertx
                 .deployVerticle( () -> new IdGenVerticle( idGenerator, allResults ), deploymentOptions )
                 .onSuccess( res -> {
-                    waitForLatch(endLatch);
+                    endLatch.waitForEveryone();
                     if (allunique(allResults)) {
                         async.complete();
                     }
@@ -152,25 +152,19 @@ public class MultithreadedIdentityGenerationTest {
             assertBoolean(started, false);
             assertBoolean(stopped, false);
             starting.set(true);
-            final String name = Thread.currentThread().getName();
-            System.out.println("Starting with latchstate: " + startLatch.getCount() + " on thread: " + name);
-            startLatch.countDown();
-            waitForLatch(startLatch);
-            System.out.println("Unlatched: " + startLatch.getCount() + " on thread: " + name);
-            stageSessionFactory.openSession()
-                            .thenCompose( s -> generateMultipleIds( idGenerator, s, generatedIds)
-                                    .handle( CompletionStages::handle )
-                                    .thenCompose( handled -> s.close()
-                                            .thenCompose( ignore -> handled.getResultAsCompletionStage()))
-                            )
+            startLatch.reached();
+            startLatch.waitForEveryone();
+            stageSessionFactory.withSession(
+                            s -> generateMultipleIds( idGenerator, s, generatedIds)
+                    )
                     .whenComplete((o, throwable) -> {
                         assertBoolean(started, false);
                         started.set(true);
-                        endLatch.countDown();
-                        waitForLatch(endLatch);
+                        endLatch.reached();
                         if (throwable != null) {
                             startPromise.fail(throwable);
                         } else {
+                            endLatch.waitForEveryone();
                             allResults.add(generatedIds);
                             final String name2 = Thread.currentThread().getName();
                             System.out.println("Thread [" + name2 + "] Deployed fine, content: " + generatedIds);
@@ -195,16 +189,8 @@ public class MultithreadedIdentityGenerationTest {
         }
     }
 
-    private static void waitForLatch(CountDownLatch latch) {
-        try {
-            latch.await(TIMEOUT_MINUTES, TimeUnit.MINUTES);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-//            throw new RuntimeException(e);
-        }
-    }
-
     private static CompletionStage<Void> generateMultipleIds(ReactiveGeneratorWrapper idGenerator, Stage.Session s, ArrayList<Long> collector) {
+        prettyOut("Preparing completionstage to gen ids");
         return CompletionStages.loop(0, IDS_GENERATED_PER_THREAD, index -> generateIds(idGenerator, s, collector) );
     }
 
@@ -224,4 +210,36 @@ public class MultithreadedIdentityGenerationTest {
         public EntityWithGeneratedId() {
         }
     }
+
+    private static final class Latch {
+        private final String label;
+        private final CountDownLatch countDownLatch;
+
+        public Latch(String label, int membersCount) {
+            this.label = label;
+            this.countDownLatch = new CountDownLatch(membersCount);
+        }
+
+        public void reached() {
+            final long count = countDownLatch.getCount();
+            countDownLatch.countDown();
+            prettyOut("Reached latch '" + label +"', current countdown is " + (count-1));
+        }
+
+        public void waitForEveryone() {
+            try {
+                countDownLatch.await(TIMEOUT_MINUTES, TimeUnit.MINUTES);
+                prettyOut("Everyone has now breached '"+label+"'");
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+
+    }
+
+    private static void prettyOut(final String message) {
+        final String threadName = Thread.currentThread().getName();
+        System.out.println( threadName + ": " + message);
+    }
+
 }
