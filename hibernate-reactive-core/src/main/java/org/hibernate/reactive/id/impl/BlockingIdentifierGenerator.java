@@ -8,10 +8,8 @@ package org.hibernate.reactive.id.impl;
 import org.hibernate.reactive.id.ReactiveIdentifierGenerator;
 import org.hibernate.reactive.session.ReactiveConnectionSupplier;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.hibernate.reactive.util.impl.CompletionStages.completedFuture;
 
@@ -39,7 +37,7 @@ public abstract class BlockingIdentifierGenerator implements ReactiveIdentifierG
 	private int loValue;
 	private long hiValue;
 
-	private volatile List<Runnable> queue = null;
+//	private volatile List<Runnable> queue = null;
 
 	protected synchronized long next() {
 		return loValue > 0 && loValue < getBlockSize()
@@ -53,49 +51,11 @@ public abstract class BlockingIdentifierGenerator implements ReactiveIdentifierG
 		return hi;
 	}
 
+	private static final AtomicLong al = new AtomicLong();
+
 	@Override
 	public CompletionStage<Long> generate(ReactiveConnectionSupplier session, Object entity) {
-		if ( getBlockSize() <= 1 ) {
-			//special case where we're not using blocking at all
-			return nextHiValue( session );
-		}
-
-		long local = next();
-		if ( local >= 0 ) {
-			// We don't need to update or initialize the hi
-			// value in the table, so just increment the lo
-			// value and return the next id in the block
-			return completedFuture( local );
-		}
-		else {
-			synchronized (this) {
-				CompletableFuture<Long> result = new CompletableFuture<>();
-				if ( queue == null ) {
-					// make a queue for any concurrent streams
-					queue = new ArrayList<>();
-					// go off and fetch the next hi value from db
-					nextHiValue( session ).thenAccept( id -> {
-//						Vertx.currentContext().runOnContext(v -> {
-						List<Runnable> list;
-						synchronized (this) {
-							// clone ref to the queue
-							list = queue;
-							queue = null;
-							// use the fetched hi value in this stream
-							result.complete( next( id ) );
-						}
-						// send waiting streams back to try again
-						list.forEach( Runnable::run );
-//						} );
-					} );
-				}
-				else {
-					// wait for the concurrent fetch to complete
-					// note that we carefully capture the right session,entity here!
-					queue.add( () -> generate( session, entity ).thenAccept( result::complete ) );
-				}
-				return result;
-			}
-		}
+		return completedFuture(al.incrementAndGet());
 	}
+
 }
