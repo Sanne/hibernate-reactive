@@ -169,27 +169,32 @@ public class MultithreadedIdentityGenerationTest {
 
 		@Override
 		public void start(Promise<Void> startPromise) {
-			startLatch.reached();
-			startLatch.waitForEveryone();//Not essential, but to ensure a good level of parallelism
-			final String initialThreadName = Thread.currentThread().getName();
-			stageSessionFactory.withSession(
+			try {
+				startLatch.reached();
+				startLatch.waitForEveryone();//Not essential, but to ensure a good level of parallelism
+				final String initialThreadName = Thread.currentThread().getName();
+				stageSessionFactory.withSession(
 							s -> generateMultipleIds( idGenerator, s, generatedIds )
 					)
 					.whenComplete( (o, throwable) -> {
-						endLatch.reached();
-						if ( throwable != null ) {
-							startPromise.fail( throwable );
-						}
-						else {
-							if ( !initialThreadName.equals( Thread.currentThread().getName() ) ) {
-								startPromise.fail( "Thread switch detected!" );
+
+							endLatch.reached();
+							if (throwable != null) {
+								startPromise.fail(throwable);
+							} else {
+								if (!initialThreadName.equals(Thread.currentThread().getName())) {
+									startPromise.fail("Thread switch detected!");
+								} else {
+									allResults.deliverResulst(generatedIds);
+									startPromise.complete();
+								}
 							}
-							else {
-								allResults.deliverResulst( generatedIds );
-								startPromise.complete();
-							}
-						}
+
 					} );
+			}
+			catch (RuntimeException e) {
+				startPromise.fail(e);
+			}
 		}
 
 		@Override
