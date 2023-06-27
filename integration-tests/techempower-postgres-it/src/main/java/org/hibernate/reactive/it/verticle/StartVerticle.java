@@ -22,6 +22,7 @@ import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.containers.output.OutputFrame;
 
 /**
  * Make it easier to run benchmarks with external tools like "wrk"
@@ -40,18 +41,28 @@ public class StartVerticle {
 
 	public static final int VERTICLE_INSTANCES = 10;
 
+	private static final String POSGRESQL_CONF_PATH = "/home/ddalto/Workspace/FrameworkBenchmarks/toolset/databases/postgres/postgresql-min.conf";
+
 	public static final PostgreSQLContainer<?> postgresql = new PostgreSQLContainer<>( IMAGE_NAME )
 			.withUsername( USERNAME )
 			.withPassword( PASSWORD )
 			.withDatabaseName( DB_NAME )
+			.withCommand( "postgres", "-c", "config_file=/ssd/postgresql/postgresql.conf" )
 			.withEnv( "PG_DATA", "/ssd/postgresql" )
-			.withReuse( true );
+			.withFileSystemBind( POSGRESQL_CONF_PATH, "/ssd/postgresql/postgresql.conf" )
+			.withReuse( true )
+			.withLogConsumer( StartVerticle::log );
+
+	private static void log(OutputFrame outputFrame) {
+		System.out.println( outputFrame.getUtf8String() );
+	}
+
 
 	private static Configuration constructConfiguration(boolean enableDocker) {
 		Configuration configuration = new Configuration();
 		configuration.addAnnotatedClass( World.class );
 
-		configuration.setProperty( Settings.HBM2DDL_AUTO, "drop-and-create" );
+		configuration.setProperty( Settings.HBM2DDL_AUTO, "create" );
 		configuration.setProperty( Settings.URL, dbConnectionUrl( enableDocker ) );
 		configuration.setProperty( Settings.USER, USERNAME );
 		configuration.setProperty( Settings.PASS, PASSWORD );
