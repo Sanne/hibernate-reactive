@@ -7,6 +7,7 @@ package org.hibernate.reactive.it.verticle;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 import org.hibernate.reactive.it.verticle.utils.LocalRandom;
@@ -35,6 +36,9 @@ public class WorldVerticle extends AbstractVerticle {
 	private final Supplier<Mutiny.SessionFactory> emfSupplier;
 	private Mutiny.SessionFactory emf;
 	private HttpServer httpServer;
+
+	static final AtomicInteger c = new AtomicInteger();
+	static final ArrayList<State> processedStates = new ArrayList<>( 2_000 );
 
 	/**
 	 * The port to use to listen to requests
@@ -123,9 +127,11 @@ public class WorldVerticle extends AbstractVerticle {
 
 	private Future<List<World>> updateWorlds(RoutingContext ctx) {
 		String queries = ctx.request().getParam( "queries" );
+		State s = new State();
+		storeState( s );
 		return toFuture( emf.withSession( session -> randomWorldsForWrite( session, parseQueryCount( queries ) )
 				.flatMap( worldsCollection -> {
-					LOG.info( worldsCollection );
+//					LOG.info( worldsCollection );
 					final LocalRandom localRandom = Randomizer.current();
 					worldsCollection.forEach( w -> {
 						//Read the one field, as required by the following rule:
@@ -135,12 +141,20 @@ public class WorldVerticle extends AbstractVerticle {
 						//the verification:
 						w.setRandomNumber( localRandom.getNextRandomExcluding( previousRead ) );
 					} );
+					s.sessionOpened();
 					return session
 							.setBatchSize( worldsCollection.size() )
 							.flush()
+							.invoke( s::flushExecuted )
 							.map( v -> worldsCollection );
 				} )
-		) );
+		).invoke( s::sessionClosed ) );
+	}
+
+	private void storeState(State s) {
+		synchronized ( processedStates ) {
+			processedStates.add( s );
+		}
 	}
 
 	private Future<Void> createData(RoutingContext ctx) {
@@ -157,5 +171,50 @@ public class WorldVerticle extends AbstractVerticle {
 
 	private static <U> Future<U> toFuture(Uni<U> uni) {
 		return Future.fromCompletionStage( uni.convert().toCompletionStage() );
+	}
+
+	public static final void dumpSuspectStates(long timerId) {
+		synchronized ( processedStates ) {
+			for ( State processedState : processedStates ) {
+				if ( processedState.sessionOpened && (!processedState.sessionClosed ) ) {
+					LOG.error( "Session open but not closed: " + processedState.contextId + " flush state: " + processedState.sessionFlushed );
+				}
+				if ( ! processedState.sessionOpened ) {
+					LOG.error( "Session was never opened successfully: " + processedState.contextId + " flush state: " + processedState.sessionFlushed );
+				}
+			}
+		}
+	}
+
+	private static final class State {
+		private volatile boolean sessionOpened = false;
+		private volatile boolean sessionClosed = false;
+		private volatile boolean sessionFlushed = false;
+		final int contextId;
+
+		private State() {
+			this.contextId = c.incrementAndGet();
+		}
+
+		public void sessionOpened() {
+			//LOG.info( "Session open, objects loaded and marked dirty "  + contextId );
+			sessionOpened = true;
+		}
+
+		public void sessionClosed() {
+			//LOG.info( "Session closed " + contextId );
+			sessionClosed = true;
+		}
+
+		public void flushExecuted() {
+			sessionFlushed = true;
+
+		}
+		//ERROR: Session open but not closed: 5
+		//Jun 28, 2023 11:37:47 AM <unknown> <unknown>
+		//ERROR: Session open but not closed: 24
+		//Jun 28, 2023 11:37:47 AM <unknown> <unknown>
+		//ERROR: Session open but not closed: 389
+
 	}
 }

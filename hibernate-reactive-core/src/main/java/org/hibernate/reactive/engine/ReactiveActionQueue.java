@@ -102,6 +102,7 @@ public class ReactiveActionQueue {
 	//method values() otherwise allocates a new array on each invocation.
 	private static final ReactiveActionQueue.OrderedActions[] ORDERED_OPERATIONS = ReactiveActionQueue.OrderedActions.values();
 
+	//checkpoints=[CollectionRemoveAction, OrphanRemovalAction, EntityInsertAction]
 	//The order of these operations is very important
 	private enum OrderedActions {
 		CollectionRemoveAction {
@@ -519,13 +520,14 @@ public class ReactiveActionQueue {
 		if ( hasUnresolvedEntityInsertActions() ) {
 			return failedFuture( new IllegalStateException( "About to execute actions, but there are unresolved entity insert actions." ) );
 		}
+//		final StateTrackerUtil.State state = StateTrackerUtil.injectTracker(lookup());
 
 		CompletionStage<Void> ret = voidFuture();
 
 		for ( OrderedActions action : ORDERED_OPERATIONS ) {
-			ret = ret.thenCompose( v -> executeActions( action.getActions( this ) ) );
+			ret = ret.thenCompose( v -> executeActions( action.getActions( this ) ) );//.thenAccept( v -> state.reached(action.name()) );
 		}
-		return ret;
+		return ret;//.thenAccept( v -> state.end() );
 	}
 
 	/**
@@ -622,13 +624,18 @@ public class ReactiveActionQueue {
 		if ( list == null || list.isEmpty() ) {
 			return voidFuture();
 		}
+
+//		final StateTrackerUtil.State state = StateTrackerUtil.injectTracker(lookup());
+
 		// todo : consider ways to improve the double iteration of Executables here:
 		//		1) we explicitly iterate list here to perform Executable#execute()
 		//		2) ExecutableList#getQuerySpaces also iterates the Executables to collect query spaces.
 		return loop( 0, list.size(),
 					 index -> {
 						 final ReactiveExecutable e = list.get( index );
+//						 state.reached( "Begin processing index " + index + " task " + e.toString() );
 						 return e.reactiveExecute()
+//								 .thenAccept( v -> state.reached( "reactiveExecute of index " + index ) )
 								 .whenComplete( (v2, x1) -> {
 									 if ( e.getBeforeTransactionCompletionProcess() != null ) {
 										 beforeTransactionProcesses().register( e.getBeforeTransactionCompletionProcess() );
@@ -639,6 +646,7 @@ public class ReactiveActionQueue {
 								 } );
 					 }
 		)
+//				.thenAccept( v -> state.reached( "loopCompleted" ) )
 		.whenComplete( (v, x) -> {
 			if ( session.getFactory().getSessionFactoryOptions().isQueryCacheEnabled() ) {
 				// Strictly speaking, only a subset of the list may have been processed if a RuntimeException occurs.
@@ -647,9 +655,13 @@ public class ReactiveActionQueue {
 				invalidateSpaces( convertTimestampSpaces( list.getQuerySpaces() ) );
 			}
 		} )
+//				.thenAccept( v -> state.reached( "invalidateSpaces" ) )
 		.thenRun(list::clear)
+//				.thenAccept( v -> state.reached( "list::clear" ) )
 		// session.getJdbcCoordinator().executeBatch();
-		.thenCompose( v -> session.getReactiveConnection().executeBatch() );
+		.thenCompose( v -> session.getReactiveConnection().executeBatch() )
+//				.thenAccept( state::end );
+		;
 	}
 
 	/**

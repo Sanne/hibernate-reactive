@@ -11,6 +11,7 @@ import org.hibernate.SessionFactory;
 import org.hibernate.boot.registry.StandardServiceRegistry;
 import org.hibernate.boot.registry.StandardServiceRegistryBuilder;
 import org.hibernate.cfg.Configuration;
+import org.hibernate.reactive.engine.impl.StateTrackerUtil;
 import org.hibernate.reactive.mutiny.Mutiny;
 import org.hibernate.reactive.provider.ReactiveServiceRegistryBuilder;
 import org.hibernate.reactive.provider.Settings;
@@ -32,7 +33,7 @@ public class StartVerticle {
 	private static final Logger LOG = Logger.getLogger( WorldVerticle.class );
 
 	// These properties are in DatabaseConfiguration in core
-	public static final boolean USE_DOCKER = true;
+	public static final boolean USE_DOCKER = false;
 
 	public static final String IMAGE_NAME = "postgres:15-bullseye";
 	public static final String USERNAME = "benchmarkdbuser";
@@ -62,7 +63,7 @@ public class StartVerticle {
 		Configuration configuration = new Configuration();
 		configuration.addAnnotatedClass( World.class );
 
-		configuration.setProperty( Settings.HBM2DDL_AUTO, "create" );
+		configuration.setProperty( Settings.HBM2DDL_AUTO, "validate" );
 		configuration.setProperty( Settings.URL, dbConnectionUrl( enableDocker ) );
 		configuration.setProperty( Settings.USER, USERNAME );
 		configuration.setProperty( Settings.PASS, PASSWORD );
@@ -114,6 +115,13 @@ public class StartVerticle {
 					LOG.info( "✅ Deployment success" );
 					LOG.info( "💡 Vert.x app started" );
 				} )
-				.onFailure( err -> LOG.errorf( "🔥 Deployment failure", err ) );
+				.onFailure( err -> LOG.errorf( "🔥 Deployment failure %s", err ) );
+//		vertx.setPeriodic( 5_000, 5_000, WorldVerticle::dumpSuspectStates );
+//		vertx.setPeriodic( 5_000, 5_000, DefaultReactiveFlushEventListener::dumpSuspectStates );
+		vertx.setPeriodic( 5_000, 5_000, StateTrackerUtil::dumpSuspectStates );
 	}
+	//ERROR: Session open but not closed: 66
+	//Jun 28, 2023 11:33:43 AM <unknown> <unknown>
+	//ERROR: Session open but not closed: 306
+	//Jun 28, 2023 11:33:48 AM <unknown> <unknown>
 }

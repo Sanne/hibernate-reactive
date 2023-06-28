@@ -22,11 +22,13 @@ import org.hibernate.persister.entity.AbstractEntityPersister;
 import org.hibernate.persister.entity.mutation.AttributeAnalysis;
 import org.hibernate.persister.entity.mutation.EntityTableMapping;
 import org.hibernate.persister.entity.mutation.UpdateCoordinatorStandard;
+import org.hibernate.reactive.engine.impl.StateTrackerUtil;
 import org.hibernate.reactive.engine.jdbc.env.internal.ReactiveMutationExecutor;
 import org.hibernate.reactive.util.impl.CompletionStages;
 import org.hibernate.sql.model.MutationOperationGroup;
 import org.hibernate.tuple.entity.EntityMetamodel;
 
+import static java.lang.invoke.MethodHandles.lookup;
 import static org.hibernate.engine.jdbc.mutation.internal.ModelMutationHelper.identifiedResultsCheck;
 import static org.hibernate.generator.EventType.INSERT;
 import static org.hibernate.internal.util.collections.ArrayHelper.EMPTY_INT_ARRAY;
@@ -64,6 +66,8 @@ public class ReactiveUpdateCoordinatorStandard extends UpdateCoordinatorStandard
 			int[] incomingDirtyAttributeIndexes,
 			boolean hasDirtyCollection,
 			SharedSessionContractImplementor session) {
+		final StateTrackerUtil.State state = StateTrackerUtil.injectTracker( lookup() );
+		state.reached( "begin" );
 		final EntityVersionMapping versionMapping = entityPersister().getVersionMapping();
 		if ( versionMapping != null ) {
 			final boolean isForcedVersionIncrement = handlePotentialImplicitForcedVersionIncrement(
@@ -76,20 +80,25 @@ public class ReactiveUpdateCoordinatorStandard extends UpdateCoordinatorStandard
 					versionMapping
 			);
 			if ( isForcedVersionIncrement ) {
+				state.end();
 				return voidFuture();
 			}
 		}
+		state.reached( "versionMapping" );
 
 		final EntityEntry entry = session.getPersistenceContextInternal().getEntry( entity );
 
 		// Ensure that an immutable or non-modifiable entity is not being updated unless it is
 		// in the process of being deleted.
 		if ( entry == null && !entityPersister().isMutable() ) {
+			state.end();
 			return CompletionStages.failedFuture(new IllegalStateException( "Updating immutable entity that is not in session yet" ));
 		}
+		state.reached( "isMutable[not]" );
 
 		CompletionStage<Void> s = voidFuture();
 		return s.thenCompose( v -> reactivePreUpdateInMemoryValueGeneration(entity, values, session) )
+				.thenApply( v -> state.reached( v, "reactivePreUpdateInMemoryValueGeneration" ) )
 				.thenCompose( preUpdateGeneratedAttributeIndexes -> {
 					final int[] dirtyAttributeIndexes = dirtyAttributeIndexes( incomingDirtyAttributeIndexes, preUpdateGeneratedAttributeIndexes );
 
@@ -129,6 +138,8 @@ public class ReactiveUpdateCoordinatorStandard extends UpdateCoordinatorStandard
 						forceDynamicUpdate = entityPersister().hasUninitializedLazyProperties( entity );
 					}
 
+					state.reached( "post if" );
+
 					performUpdate(
 							entity,
 							id,
@@ -143,10 +154,14 @@ public class ReactiveUpdateCoordinatorStandard extends UpdateCoordinatorStandard
 							attributeUpdateability,
 							forceDynamicUpdate
 					);
-
+					state.reached( "post performUpdate [stage: " + (stage == null ? "is null" : "is not null") + "] [is completed: " + stage.toCompletableFuture().isDone() + "]" );
 					// stage gets updated by doDynamicUpdate and doStaticUpdate which get called by performUpdate
 					return stage != null ? stage : voidFuture();
-				});
+				})
+				.thenApply( v -> {
+					state.reached( "FINISH" );
+					state.end(); return v; }
+				);
 	}
 
 	private CompletionStage<int[]> reactivePreUpdateInMemoryValueGeneration(

@@ -28,7 +28,7 @@ dependencies {
 
     // Testing
     testImplementation "org.assertj:assertj-core:${assertjVersion}"
-    testImplementation "io.vertx:vertx-junit5:${vertxVersion}"
+    testImplementation "io.vertx:vertx-junit5:4.4.4"
 }
 
 buildscript {

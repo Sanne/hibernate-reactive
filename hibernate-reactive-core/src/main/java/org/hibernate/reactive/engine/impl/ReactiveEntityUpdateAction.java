@@ -21,12 +21,16 @@ import org.hibernate.event.spi.EventSource;
 import org.hibernate.metamodel.mapping.NaturalIdMapping;
 import org.hibernate.persister.entity.EntityPersister;
 import org.hibernate.reactive.engine.ReactiveExecutable;
+import org.hibernate.reactive.logging.impl.Log;
 import org.hibernate.reactive.persister.entity.impl.ReactiveEntityPersister;
 import org.hibernate.stat.internal.StatsHelper;
 import org.hibernate.stat.spi.StatisticsImplementor;
 import org.hibernate.tuple.entity.EntityMetamodel;
 import org.hibernate.type.TypeHelper;
 
+
+import static java.lang.invoke.MethodHandles.lookup;
+import static org.hibernate.reactive.logging.impl.LoggerFactory.make;
 import static org.hibernate.reactive.util.impl.CompletionStages.completedFuture;
 import static org.hibernate.reactive.util.impl.CompletionStages.voidFuture;
 
@@ -66,9 +70,13 @@ public class ReactiveEntityUpdateAction extends EntityUpdateAction implements Re
 				instance, rowId, persister, session );
 	}
 
+	private static final Log LOG = make( Log.class, lookup() );
+
 	@Override
 	public CompletionStage<Void> reactiveExecute() throws HibernateException {
+		final StateTrackerUtil.State state = StateTrackerUtil.disabledTracker( lookup() );
 		if ( preUpdate() ) {
+			state.end();
 			return voidFuture();
 		}
 
@@ -80,6 +88,7 @@ public class ReactiveEntityUpdateAction extends EntityUpdateAction implements Re
 		final Object ck = lockCacheItem( previousVersion );
 
 		final ReactiveEntityPersister reactivePersister = (ReactiveEntityPersister) persister;
+		state.reached( "first" );
 		return reactivePersister
 				.updateReactive(
 						id,
@@ -92,6 +101,7 @@ public class ReactiveEntityUpdateAction extends EntityUpdateAction implements Re
 						getRowId(),
 						session
 				)
+				.thenAccept( v -> state.reached( "updateReactive" ) )
 				.thenApply( res -> {
 					final EntityEntry entry = session.getPersistenceContextInternal().getEntry( instance );
 					if ( entry == null ) {
@@ -99,16 +109,28 @@ public class ReactiveEntityUpdateAction extends EntityUpdateAction implements Re
 					}
 					return entry;
 				} )
+				.thenApply( v -> { state.reached( "EntityEntry" ); return v;} )
 				.thenCompose( this::handleGeneratedProperties )
+				.thenApply( v -> { state.reached( "handleGeneratedProperties" ); return v;} )
 				.thenAccept( entry -> {
-					handleDeleted( entry, persister, instance );
-					updateCacheItem( persister, ck, entry );
-					handleNaturalIdResolutions( persister, session, id );
-					postUpdate();
+					state.reached( "begin last block" );
+					try {
+						handleDeleted( entry, persister, instance );
+						state.reached( "handleDeleted" );
+						updateCacheItem( persister, ck, entry );
+						state.reached( "updateCacheItem" );
+						handleNaturalIdResolutions( persister, session, id );
+						postUpdate();
 
-					final StatisticsImplementor statistics = session.getFactory().getStatistics();
-					if ( statistics.isStatisticsEnabled() ) {
-						statistics.updateEntity( getPersister().getEntityName() );
+						final StatisticsImplementor statistics = session.getFactory().getStatistics();
+						if ( statistics.isStatisticsEnabled() ) {
+							statistics.updateEntity( getPersister().getEntityName() );
+						}
+					} catch (Error e ) {
+						LOG.error( "CRITICAL", e );
+					}
+					finally {
+						state.end();
 					}
 				} );
 	}
