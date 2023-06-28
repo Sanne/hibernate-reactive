@@ -53,6 +53,16 @@ tasks.withType( Test ).configureEach {
 	systemProperty 'org.hibernate.reactive.common.InternalStateAssertions.ENFORCE', 'true'
 }
 
+jar {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+	manifest {
+		attributes 'Main-Class': 'org.hibernate.reactive.it.verticle.StartVerticle'
+	}
+	from {
+		configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+	}
+}
+
 test {
 	// We only want to test this on Postgres
 	afterSuite { desc, result ->

@@ -17,7 +17,6 @@ import org.jboss.logging.Logger;
 
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.AbstractVerticle;
-import io.vertx.core.CompositeFuture;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.http.HttpServer;
@@ -25,6 +24,8 @@ import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
 
+import static io.vertx.core.CompositeFuture.all;
+import static java.lang.Integer.parseInt;
 import static org.hibernate.reactive.util.impl.CompletionStages.loop;
 
 public class WorldVerticle extends AbstractVerticle {
@@ -73,7 +74,7 @@ public class WorldVerticle extends AbstractVerticle {
 				.listen( HTTP_PORT )
 				.onSuccess( v -> LOG.infof( "✅ HTTP server listening on port %s", HTTP_PORT ) );
 
-		CompositeFuture.all( startHibernate, startHttpServer )
+		all( startHibernate, startHttpServer )
 				.onSuccess( s -> startPromise.complete() )
 				.onFailure( startPromise::fail );
 	}
@@ -108,16 +109,16 @@ public class WorldVerticle extends AbstractVerticle {
 	}
 
 	private int parseQueryCount(String textValue) {
-		if (textValue == null) {
+		if ( textValue == null ) {
 			return 1;
 		}
-		int parsedValue;
+
 		try {
-			parsedValue = Integer.parseInt(textValue);
-		} catch (NumberFormatException e) {
+			return Math.min( 500, Math.max( 1, parseInt( textValue ) ) );
+		}
+		catch (NumberFormatException e) {
 			return 1;
 		}
-		return Math.min(500, Math.max(1, parsedValue));
 	}
 
 	private Future<List<World>> updateWorlds(RoutingContext ctx) {
@@ -134,7 +135,8 @@ public class WorldVerticle extends AbstractVerticle {
 						//the verification:
 						w.setRandomNumber( localRandom.getNextRandomExcluding( previousRead ) );
 					} );
-					return session.setBatchSize( worldsCollection.size() )
+					return session
+							.setBatchSize( worldsCollection.size() )
 							.flush()
 							.map( v -> worldsCollection );
 				} )
