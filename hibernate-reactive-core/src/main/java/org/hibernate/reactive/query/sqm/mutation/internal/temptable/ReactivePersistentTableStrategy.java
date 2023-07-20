@@ -5,8 +5,7 @@
  */
 package org.hibernate.reactive.query.sqm.mutation.internal.temptable;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
+import org.hibernate.reactive.engine.impl.InternalStage;
 
 import org.hibernate.dialect.temptable.TemporaryTable;
 import org.hibernate.engine.config.spi.ConfigurationService;
@@ -42,9 +41,9 @@ public interface ReactivePersistentTableStrategy {
 
 	TemporaryTable getTemporaryTable();
 
-	CompletionStage<Void> getDropTableActionStage();
+	InternalStage<Void> getDropTableActionStage();
 
-	CompletionStage<Void> getCreateTableActionStage();
+	InternalStage<Void> getCreateTableActionStage();
 
 	SessionFactoryImplementor getSessionFactory();
 
@@ -52,7 +51,7 @@ public interface ReactivePersistentTableStrategy {
 		return session.getSessionIdentifier().toString();
 	}
 
-	default void prepare(MappingModelCreationProcess mappingModelCreationProcess, JdbcConnectionAccess connectionAccess, CompletableFuture<Void> tableCreatedStage) {
+	default void prepare(MappingModelCreationProcess mappingModelCreationProcess, JdbcConnectionAccess connectionAccess, InternalStage<Void> tableCreatedStage) {
 		if ( isPrepared() ) {
 			return;
 		}
@@ -86,7 +85,7 @@ public interface ReactivePersistentTableStrategy {
 				);
 	}
 
-	private CompletionStage<Void> releaseConnection(ReactiveConnection connection) {
+	private InternalStage<Void> releaseConnection(ReactiveConnection connection) {
 		if ( connection == null ) {
 			return voidFuture();
 		}
@@ -110,7 +109,7 @@ public interface ReactivePersistentTableStrategy {
 		}
 	}
 
-	private CompletionStage<ReactiveConnection> createTable(ReactiveConnection connection) {
+	private InternalStage<ReactiveConnection> createTable(ReactiveConnection connection) {
 		try {
 			return new ReactiveTemporaryTableHelper.TemporaryTableCreationWork(
 					getTemporaryTable(),
@@ -132,7 +131,7 @@ public interface ReactivePersistentTableStrategy {
 		) );
 	}
 
-	private CompletionStage<ReactiveConnection> connectionStage() {
+	private InternalStage<ReactiveConnection> connectionStage() {
 		try {
 			return getSessionFactory().getServiceRegistry()
 					.getService( ReactiveConnectionPool.class )
@@ -146,7 +145,7 @@ public interface ReactivePersistentTableStrategy {
 	default void release(
 			SessionFactoryImplementor sessionFactory,
 			JdbcConnectionAccess connectionAccess,
-			CompletableFuture<Void> tableDroppedStage) {
+			InternalStage<Void> tableDroppedStage) {
 		if ( !isDropIdTables() ) {
 			tableDroppedStage.complete( null );
 		}
@@ -170,7 +169,7 @@ public interface ReactivePersistentTableStrategy {
 				);
 	}
 
-	private CompletionStage<ReactiveConnection> dropTable(ReactiveConnection connection) {
+	private InternalStage<ReactiveConnection> dropTable(ReactiveConnection connection) {
 		try {
 			return new ReactiveTemporaryTableHelper.TemporaryTableDropWork( getTemporaryTable(), getSessionFactory() )
 					.reactiveExecute( connection )
